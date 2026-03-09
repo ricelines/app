@@ -1,0 +1,29 @@
+{
+  "brand": "Ricelines",
+  "default_server_name": "ricelines.com",
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": "https://matrix.ricelines.com"
+    }
+  },
+  "disable_custom_urls": true,
+  "disable_3pid_login": true,
+  "disable_login_language_selector": true,
+  "disable_guests": true,
+  "permalink_prefix": "https://app.ricelines.com",
+  "mobile_guide_toast": false,
+  "embedded_pages": {
+    "login_for_welcome": false
+  },
+  "sso_redirect_options": {
+    "immediate": false,
+    "on_welcome_page": false,
+    "on_login_page": false
+  },
+  "setting_defaults": {
+    "show_labs_settings": false,
+    "feature_widgets": true,
+    "feature_voip": true,
+    "feature_location_sharing": false
+  }
+}

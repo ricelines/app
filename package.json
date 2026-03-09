@@ -1,0 +1,11 @@
+{
+  "name": "ricelines-app",
+  "private": true,
+  "packageManager": "pnpm@10.7.0",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "build": "node scripts/build-element-web.mjs"
+  }
+}
