@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { cp, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
-import path from "node:path";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
@@ -13,8 +13,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const outputDir = path.join(rootDir, "dist");
+const assetsDir = path.join(rootDir, "assets");
 const configPath = path.join(rootDir, "config", "element-config.json");
 const releaseApiUrl = "https://api.github.com/repos/element-hq/element-web/releases/latest";
+const brandedAssetFiles = [
+  "ricelines-lockup.png",
+  "ricelines-lockup.webp",
+  "ricelines-emblem-icon-180.png",
+  "ricelines-emblem-icon-512.png"
+];
 
 const cloudflareHeaders = `/
   Cache-Control: no-cache
@@ -38,34 +45,61 @@ const cloudflareHeaders = `/
 const cloudflareRedirects = `/* /index.html 200
 `;
 
+const faviconLines = [
+  '    <link rel="apple-touch-icon" sizes="180x180" href="assets/ricelines-emblem-icon-180.png">',
+  '    <link rel="manifest" href="manifest.json">',
+  '    <meta name="referrer" content="no-referrer">',
+  '    <link rel="icon" href="favicon.ico" sizes="any">'
+];
+
 async function main() {
+  const config = await loadJson(configPath);
   const tempDir = await mkdtemp(path.join(tmpdir(), "ricelines-element-web-"));
+
   try {
-    const release = await fetchLatestRelease();
-    const asset = selectReleaseAsset(release);
-    const archivePath = path.join(tempDir, asset.name);
-    const extractDir = path.join(tempDir, "extract");
+    const sourceDir = await prepareBaseDist(tempDir);
 
-    console.log(`Downloading ${release.tag_name} from ${asset.browser_download_url}`);
-    await downloadFile(asset.browser_download_url, archivePath);
+    if (sourceDir !== outputDir) {
+      await rm(outputDir, { recursive: true, force: true });
+      await cp(sourceDir, outputDir, { recursive: true });
+    }
 
-    await mkdir(extractDir, { recursive: true });
-    await extractArchive(archivePath, extractDir);
-
-    const extractedAppDir = await findExtractedAppDir(extractDir);
-    const config = await loadConfig(configPath);
-
-    await rm(outputDir, { recursive: true, force: true });
-    await cp(extractedAppDir, outputDir, { recursive: true });
+    await rm(path.join(outputDir, "assets"), { recursive: true, force: true });
+    await mkdir(path.join(outputDir, "assets"), { recursive: true });
+    for (const assetFile of brandedAssetFiles) {
+      await cp(path.join(assetsDir, assetFile), path.join(outputDir, "assets", assetFile), { force: true });
+    }
+    await cp(path.join(assetsDir, "favicon.ico"), path.join(outputDir, "favicon.ico"), { force: true });
 
     await writeFile(path.join(outputDir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
+    await writeFile(path.join(outputDir, "index.html"), await brandIndexHtml(config.brand));
+    await writeFile(path.join(outputDir, "manifest.json"), await brandManifest(config.brand));
     await writeFile(path.join(outputDir, "_headers"), cloudflareHeaders);
     await writeFile(path.join(outputDir, "_redirects"), cloudflareRedirects);
 
-    console.log(`Built ${release.tag_name} into ${outputDir}`);
+    console.log(`Prepared branded Element bundle in ${outputDir}`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+async function prepareBaseDist(tempDir) {
+  if (await containsIndexHtml(outputDir)) {
+    return outputDir;
+  }
+
+  const release = await fetchLatestRelease();
+  const asset = selectReleaseAsset(release);
+  const archivePath = path.join(tempDir, asset.name);
+  const extractDir = path.join(tempDir, "extract");
+
+  console.log(`Downloading ${release.tag_name} from ${asset.browser_download_url}`);
+  await downloadFile(asset.browser_download_url, archivePath);
+
+  await mkdir(extractDir, { recursive: true });
+  await extractArchive(archivePath, extractDir);
+
+  return findExtractedAppDir(extractDir);
 }
 
 async function fetchLatestRelease() {
@@ -153,15 +187,71 @@ async function findExtractedAppDir(extractDir) {
 
 async function containsIndexHtml(dirPath) {
   try {
-    const indexPath = path.join(dirPath, "index.html");
-    const indexStat = await stat(indexPath);
+    const indexStat = await stat(path.join(dirPath, "index.html"));
     return indexStat.isFile();
   } catch {
     return false;
   }
 }
 
-async function loadConfig(filePath) {
+async function brandIndexHtml(brand) {
+  const filePath = path.join(outputDir, "index.html");
+  const fileContents = await readFile(filePath, "utf8");
+  const lines = fileContents.split("\n");
+  const brandedLines = [];
+  let insertedBrandHeadBlock = false;
+
+  for (const line of lines) {
+    if (line.includes("<title>")) {
+      brandedLines.push(`    <title>${brand}</title>`);
+      brandedLines.push(...faviconLines);
+      brandedLines.push(`    <meta name="apple-mobile-web-app-title" content="${brand}">`);
+      brandedLines.push(`    <meta name="application-name" content="${brand}">`);
+      brandedLines.push('    <meta property="og:image" content="assets/ricelines-lockup.png" />');
+      insertedBrandHeadBlock = true;
+      continue;
+    }
+
+    if (
+      line.includes('<link rel="apple-touch-icon"') ||
+      line.includes('<link rel="manifest"') ||
+      line.includes('<meta name="referrer"') ||
+      line.includes('<link rel="icon"') ||
+      line.includes('apple-mobile-web-app-title') ||
+      line.includes('application-name') ||
+      line.includes('property="og:image"')
+    ) {
+      continue;
+    }
+
+    brandedLines.push(line);
+  }
+
+  if (!insertedBrandHeadBlock) {
+    throw new Error(`Could not find <title> in ${filePath}`);
+  }
+
+  return `${brandedLines.join("\n")}\n`;
+}
+
+async function brandManifest(brand) {
+  const filePath = path.join(outputDir, "manifest.json");
+  const manifest = await loadJson(filePath);
+
+  manifest.name = brand;
+  manifest.short_name = brand;
+  manifest.icons = [
+    {
+      src: "assets/ricelines-emblem-icon-512.png",
+      sizes: "512x512",
+      type: "image/png"
+    }
+  ];
+
+  return `${JSON.stringify(manifest, null, 4)}\n`;
+}
+
+async function loadJson(filePath) {
   const fileContents = await readFile(filePath, "utf8");
 
   try {

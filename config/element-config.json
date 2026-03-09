@@ -1,5 +1,5 @@
 {
-  "brand": "Ricelines",
+  "brand": "ricelines",
   "default_server_name": "ricelines.com",
   "default_server_config": {
     "m.homeserver": {
@@ -12,6 +12,9 @@
   "disable_guests": true,
   "permalink_prefix": "https://app.ricelines.com",
   "mobile_guide_toast": false,
+  "branding": {
+    "auth_header_logo_url": "assets/ricelines-lockup.webp"
+  },
   "embedded_pages": {
     "login_for_welcome": false
   },
